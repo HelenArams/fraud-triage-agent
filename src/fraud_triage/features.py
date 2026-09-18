@@ -86,8 +86,8 @@ def compute(txn: Transaction, history: Sequence[Transaction]) -> Features:
         history_size=len(prior),
         card_vs_merchant_country=txn.merchant_country != txn.card_country,
         card_vs_ip_country=bool(txn.ip_country) and txn.ip_country != txn.card_country,
-        # no history -> we can't call a device "new"
-        new_device=bool(txn.device_id) and bool(prior) and txn.device_id not in seen_devices,
+        # a card that never used a device-bearing channel has no "known" devices yet
+        new_device=bool(txn.device_id) and bool(seen_devices) and txn.device_id not in seen_devices,
         risky_mcc=RISKY_MCC.get(txn.mcc),
         three_ds_missing=txn.channel == "ecom" and (txn.three_ds_result or "") not in THREE_DS_OK,
         card_testing=is_card_testing(txn, prior),
