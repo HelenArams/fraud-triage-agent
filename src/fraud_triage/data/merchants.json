@@ -1,0 +1,14 @@
+{
+  "m_asos": {"name": "ASOS", "mcc": "5651", "country": "GB", "onboarded": "2019-03-02", "chargeback_bps": 18},
+  "m_curry_online": {"name": "Currys Online", "mcc": "5732", "country": "GB", "onboarded": "2018-11-20", "chargeback_bps": 41, "notes": "electronics, resellable goods"},
+  "m_betbox": {"name": "BetBox Casino", "mcc": "7995", "country": "MT", "onboarded": "2025-06-14", "chargeback_bps": 120},
+  "m_amzn_ie": {"name": "Amazon EU", "mcc": "5999", "country": "LU", "onboarded": "2017-01-10", "chargeback_bps": 9},
+  "m_glovo": {"name": "Glovo", "mcc": "5812", "country": "ES", "onboarded": "2021-04-01", "chargeback_bps": 22},
+  "m_bistro_luna": {"name": "Bistro Luna", "mcc": "5812", "country": "ES", "onboarded": "2026-09-01", "chargeback_bps": 0, "notes": "onboarded this month, no volume history"},
+  "m_dn_1": {"name": "Donate-Hope Org", "mcc": "8398", "country": "US", "onboarded": "2024-02-12", "chargeback_bps": 310, "notes": "frequent card-testing target"},
+  "m_dn_2": {"name": "Save The Reef", "mcc": "8398", "country": "US", "onboarded": "2023-08-30", "chargeback_bps": 270},
+  "m_gc_shop": {"name": "GiftCardz", "mcc": "5734", "country": "US", "onboarded": "2025-01-05", "chargeback_bps": 190},
+  "m_spotify": {"name": "Spotify", "mcc": "5815", "country": "SE", "onboarded": "2016-05-01", "chargeback_bps": 6},
+  "m_bistro_ly": {"name": "Bistro des Halles", "mcc": "5812", "country": "FR", "onboarded": "2020-07-07", "chargeback_bps": 3},
+  "m_carrefour_ly": {"name": "Carrefour Part-Dieu", "mcc": "5411", "country": "FR", "onboarded": "2015-02-11", "chargeback_bps": 2}
+}
