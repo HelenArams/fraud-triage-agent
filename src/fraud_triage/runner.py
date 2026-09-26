@@ -10,9 +10,10 @@ from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.sqlite import SqliteSaver
+from langgraph.types import Command
 
 from fraud_triage.graph import TriageState
-from fraud_triage.models import Transaction
+from fraud_triage.models import ReviewAnswer, Transaction
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,7 @@ class Outcome:
     band: str
     path: list[str]
     verdict: str | None
+    pending: bool = False
 
 
 def open_checkpointer(path: str | Path) -> SqliteSaver:
@@ -36,7 +38,7 @@ def thread_config(thread_id: str) -> RunnableConfig:
     return {"configurable": {"thread_id": thread_id}}
 
 
-def outcome_from_state(thread_id: str, values: dict[str, Any]) -> Outcome:
+def outcome_from_state(thread_id: str, values: dict[str, Any], pending: bool = False) -> Outcome:
     rs = values.get("rule_score", {})
     return Outcome(
         txn_id=values["txn"]["id"],
@@ -45,6 +47,7 @@ def outcome_from_state(thread_id: str, values: dict[str, Any]) -> Outcome:
         band=rs.get("band", "?"),
         path=list(values.get("path", [])),
         verdict=values.get("final_verdict"),
+        pending=pending,
     )
 
 
@@ -65,5 +68,16 @@ def triage_all(
         }
         cfg = thread_config(txn.id)
         graph.invoke(state, cfg)
-        outcomes.append(outcome_from_state(txn.id, graph.get_state(cfg).values))
+        snap = graph.get_state(cfg)
+        outcomes.append(outcome_from_state(txn.id, snap.values, pending=bool(snap.next)))
     return outcomes
+
+
+def resume(graph: Any, thread_id: str, answer: ReviewAnswer) -> Outcome:
+    cfg = thread_config(thread_id)
+    snap = graph.get_state(cfg)
+    if "human_review" not in snap.next:
+        raise LookupError(f"thread {thread_id!r} is not waiting for review")
+    graph.invoke(Command(resume=answer.model_dump(mode="json")), cfg)
+    snap = graph.get_state(cfg)
+    return outcome_from_state(thread_id, snap.values, pending=bool(snap.next))

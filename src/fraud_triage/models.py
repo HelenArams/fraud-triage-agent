@@ -54,3 +54,18 @@ class TriageDecision(BaseModel):
     rationale: str = Field(min_length=1)
     # refs like "feature:new_device", "case:C-104", "txn:t_0012"
     evidence: list[str] = Field(default_factory=list)
+
+
+class ReviewAnswer(BaseModel):
+    """What the analyst sends back when resuming a thread parked in human_review."""
+
+    approve: bool
+    note: str = ""
+    # override the proposed verdict; default is proposed-if-approved, CLEAR if rejected
+    verdict: Verdict | None = None
+    analyst: str = "analyst"
+
+    def final_verdict(self, proposed: Verdict) -> Verdict:
+        if self.verdict is not None:
+            return self.verdict
+        return proposed if self.approve else Verdict.CLEAR

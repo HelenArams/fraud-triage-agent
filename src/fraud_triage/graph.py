@@ -13,13 +13,14 @@ from typing import Annotated, Any, Literal, TypedDict
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.types import interrupt
 
 from fraud_triage.config import Settings
 from fraud_triage.features import Features, compute
 from fraud_triage.investigate import investigate
 from fraud_triage.llm.base import LLMClient
 from fraud_triage.loader import parse_rows
-from fraud_triage.models import Transaction, TriageDecision, Verdict
+from fraud_triage.models import ReviewAnswer, Transaction, TriageDecision, Verdict
 from fraud_triage.scoring import RuleScore, score
 from fraud_triage.tools import ToolContext
 
@@ -34,6 +35,7 @@ class TriageState(TypedDict, total=False):
     tool_calls: list[str]
     notes: Annotated[list[str], operator.add]
     path: Annotated[list[str], operator.add]
+    review: dict[str, Any]
     final_verdict: str
 
 
@@ -70,15 +72,39 @@ def build_graph(
 
     def score_node(state: TriageState) -> dict[str, Any]:
         rs = score(Features.model_validate(state["features"]), settings)
-        return {"rule_score": rs.model_dump(), "path": ["score"]}
+        update: dict[str, Any] = {"rule_score": rs.model_dump(), "path": ["score"]}
+        if rs.band == "high":
+            # above the high threshold we don't ask the model, the rules are
+            # loud enough; the human gets a rules-only proposal instead
+            update["decision"] = TriageDecision(
+                verdict=Verdict.BLOCK_CARD,
+                confidence=rs.score,
+                rationale="Rule score above the escalation threshold: "
+                + "; ".join(r.detail for r in rs.reasons)
+                + ".",
+                evidence=["rule_score", *(f"feature:{r.code}" for r in rs.reasons)],
+            ).model_dump(mode="json")
+        return update
 
-    def route_after_score(state: TriageState) -> Literal["auto_clear", "investigate", "escalated"]:
+    def route_after_score(
+        state: TriageState,
+    ) -> Literal["auto_clear", "investigate", "human_review"]:
         band = state["rule_score"]["band"]
         if band == "low":
             return "auto_clear"
         if band == "high":
-            return "escalated"
+            return "human_review"
         return "investigate"
+
+    def finalize(state: TriageState) -> dict[str, Any]:
+        return {"final_verdict": state["decision"]["verdict"], "path": ["finalize"]}
+
+    def route_after_investigate(state: TriageState) -> Literal["human_review", "finalize"]:
+        if state["decision"]["verdict"] == Verdict.BLOCK_CARD:
+            return "human_review"
+        if state["rule_score"]["score"] >= settings.high_threshold:
+            return "human_review"
+        return "finalize"
 
     def auto_clear(state: TriageState) -> dict[str, Any]:
         rs = RuleScore.model_validate(state["rule_score"])
@@ -104,15 +130,29 @@ def build_graph(
         inv = investigate(llm, ctx, settings.max_tool_turns)
         return {
             "decision": inv.decision.model_dump(mode="json"),
-            "final_verdict": inv.decision.verdict.value,
             "tool_calls": inv.tool_calls,
             "notes": inv.notes,
             "path": ["investigate"],
         }
 
-    def escalated(state: TriageState) -> dict[str, Any]:
-        # TODO: hand these to a human instead of just marking them
-        return {"final_verdict": Verdict.BLOCK_CARD.value, "path": ["escalated"]}
+    def human_review(state: TriageState) -> dict[str, Any]:
+        proposed = TriageDecision.model_validate(state["decision"])
+        # execution stops here until someone runs `fraud-triage review <thread>`;
+        # on resume the node runs again from the top and interrupt() returns
+        # the analyst's answer
+        raw = interrupt(
+            {
+                "txn_id": state["txn"]["id"],
+                "rule_score": state["rule_score"]["score"],
+                "proposed": proposed.model_dump(mode="json"),
+            }
+        )
+        answer = ReviewAnswer.model_validate(raw)
+        return {
+            "review": answer.model_dump(mode="json"),
+            "final_verdict": answer.final_verdict(proposed.verdict).value,
+            "path": ["human_review"],
+        }
 
     g = StateGraph(TriageState)
     g.add_node("ingest", ingest)
@@ -120,13 +160,15 @@ def build_graph(
     g.add_node("score", score_node)
     g.add_node("auto_clear", auto_clear)
     g.add_node("investigate", investigate_node)
-    g.add_node("escalated", escalated)
+    g.add_node("finalize", finalize)
+    g.add_node("human_review", human_review)
 
     g.add_edge(START, "ingest")
     g.add_edge("ingest", "features")
     g.add_edge("features", "score")
     g.add_conditional_edges("score", route_after_score)
     g.add_edge("auto_clear", END)
-    g.add_edge("investigate", END)
-    g.add_edge("escalated", END)
+    g.add_conditional_edges("investigate", route_after_investigate)
+    g.add_edge("finalize", END)
+    g.add_edge("human_review", END)
     return g.compile(checkpointer=checkpointer)

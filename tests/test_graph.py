@@ -42,8 +42,8 @@ def test_mid_risk_goes_to_investigate(tmp_path: Any) -> None:
         ]
     )
     out = run(fake, state_for(txn, hist), tmp_path)
-    assert out["path"][-1] == "investigate"
-    assert out["decision"]["verdict"] == "REVIEW"
+    assert out["path"][3:] == ["investigate", "finalize"]
+    assert out["final_verdict"] == "REVIEW"
     assert out["tool_calls"] == ["feature_breakdown", "card_history", "submit_decision"]
     # second request carries both tool results back in one user message
     last = fake.calls[1].messages[-1]
@@ -60,13 +60,29 @@ def test_ingest_drops_other_cards_and_future_history(tmp_path: Any) -> None:
     assert {h["id"] for h in out["history"]} == {h.id for h in hist}
 
 
-def test_high_risk_skips_the_llm(tmp_path: Any) -> None:
+def test_high_risk_skips_the_llm_and_waits_for_a_human(tmp_path: Any) -> None:
     txn, hist = card_testing_case()
     fake = FakeClient([])
-    out = run(fake, state_for(txn, hist), tmp_path)
-    assert out["rule_score"]["band"] == "high"
-    assert "investigate" not in out["path"]
+    graph = build_graph(fake, Settings(), open_checkpointer(tmp_path / "cp.sqlite"))
+    graph.invoke(state_for(txn, hist), thread_config("t"))
+    snap = graph.get_state(thread_config("t"))
+    assert snap.next == ("human_review",)
+    assert snap.values["rule_score"]["band"] == "high"
+    assert snap.values["decision"]["verdict"] == "BLOCK_CARD"
+    assert "feature:card_testing" in snap.values["decision"]["evidence"]
+    [intr] = snap.interrupts
+    assert intr.value["txn_id"] == "t_ct"
+    assert "final_verdict" not in snap.values
     assert fake.calls == []
+
+
+def test_block_from_investigate_goes_to_human(tmp_path: Any) -> None:
+    txn, hist = ato_case()
+    graph = build_graph(OfflineAnalyst(), Settings(), open_checkpointer(tmp_path / "cp.sqlite"))
+    graph.invoke(state_for(txn, hist), thread_config("t"))
+    snap = graph.get_state(thread_config("t"))
+    assert snap.values["decision"]["verdict"] == "BLOCK_CARD"
+    assert snap.next == ("human_review",)
 
 
 def test_investigate_recovers_from_bad_tool_and_bad_decision(tmp_path: Any) -> None:

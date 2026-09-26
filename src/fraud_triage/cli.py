@@ -13,8 +13,8 @@ from fraud_triage.features import compute
 from fraud_triage.graph import build_graph
 from fraud_triage.llm.factory import get_llm
 from fraud_triage.loader import LoaderError, load_transactions
-from fraud_triage.models import Transaction
-from fraud_triage.runner import open_checkpointer, triage_all
+from fraud_triage.models import ReviewAnswer, Transaction, Verdict
+from fraud_triage.runner import open_checkpointer, resume, triage_all
 from fraud_triage.scoring import score
 
 app = typer.Typer(
@@ -52,9 +52,38 @@ def run(path: Path, out: OutOpt = Path("out")) -> None:
 
     table = Table("txn", "score", "band", "path", "verdict")
     for o in outcomes:
-        table.add_row(o.txn_id, f"{o.score:.2f}", o.band, " > ".join(o.path[3:]), o.verdict or "-")
+        verdict = "[yellow]awaiting review[/yellow]" if o.pending else (o.verdict or "-")
+        table.add_row(o.txn_id, f"{o.score:.2f}", o.band, " > ".join(o.path[3:]), verdict)
     console.print(table)
-    console.print(f"provider: {settings.provider}, {len(outcomes)} transactions")
+    pending = [o.thread_id for o in outcomes if o.pending]
+    console.print(
+        f"provider: {settings.provider}, {len(outcomes)} transactions, {len(pending)} waiting for review"
+    )
+    for thread in pending:
+        console.print(f"  fraud-triage review {thread} --approve|--reject --note '...' --out {out}")
+
+
+@app.command()
+def review(
+    thread_id: str,
+    approve: Annotated[
+        bool, typer.Option("--approve/--reject", help="accept or reject the proposal")
+    ],
+    note: Annotated[str, typer.Option(help="free-text note for the audit trail")] = "",
+    verdict: Annotated[Verdict | None, typer.Option(help="override the final verdict")] = None,
+    analyst: Annotated[str, typer.Option(help="who is deciding")] = "analyst",
+    out: OutOpt = Path("out"),
+) -> None:
+    """Resume a thread parked in human_review with the analyst's decision."""
+    settings = Settings()
+    graph = build_graph(get_llm(settings), settings, open_checkpointer(out / "checkpoints.sqlite"))
+    answer = ReviewAnswer(approve=approve, note=note, verdict=verdict, analyst=analyst)
+    try:
+        outcome = resume(graph, thread_id, answer)
+    except LookupError as e:
+        console.print(f"[red]{e}[/red]")
+        raise typer.Exit(1) from e
+    console.print(f"{outcome.txn_id}: final verdict [bold]{outcome.verdict}[/bold]")
 
 
 @app.command()
