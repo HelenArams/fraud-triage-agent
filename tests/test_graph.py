@@ -42,7 +42,7 @@ def test_mid_risk_goes_to_investigate(tmp_path: Any) -> None:
         ]
     )
     out = run(fake, state_for(txn, hist), tmp_path)
-    assert out["path"][3:] == ["investigate", "finalize"]
+    assert out["path"][3:] == ["investigate", "guardrails", "finalize"]
     assert out["final_verdict"] == "REVIEW"
     assert out["tool_calls"] == ["feature_breakdown", "card_history", "submit_decision"]
     # second request carries both tool results back in one user message

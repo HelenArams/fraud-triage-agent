@@ -17,6 +17,7 @@ from langgraph.types import interrupt
 
 from fraud_triage.config import Settings
 from fraud_triage.features import Features, compute
+from fraud_triage.guardrails import check
 from fraud_triage.investigate import investigate
 from fraud_triage.llm.base import LLMClient
 from fraud_triage.loader import parse_rows
@@ -35,6 +36,7 @@ class TriageState(TypedDict, total=False):
     tool_calls: list[str]
     notes: Annotated[list[str], operator.add]
     path: Annotated[list[str], operator.add]
+    guardrail_notes: list[str]
     review: dict[str, Any]
     final_verdict: str
 
@@ -96,10 +98,22 @@ def build_graph(
             return "human_review"
         return "investigate"
 
+    def guardrails(state: TriageState) -> dict[str, Any]:
+        checked = check(
+            TriageDecision.model_validate(state["decision"]),
+            RuleScore.model_validate(state["rule_score"]),
+            settings,
+        )
+        return {
+            "decision": checked.decision.model_dump(mode="json"),
+            "guardrail_notes": checked.notes,
+            "path": ["guardrails"],
+        }
+
     def finalize(state: TriageState) -> dict[str, Any]:
         return {"final_verdict": state["decision"]["verdict"], "path": ["finalize"]}
 
-    def route_after_investigate(state: TriageState) -> Literal["human_review", "finalize"]:
+    def route_after_guardrails(state: TriageState) -> Literal["human_review", "finalize"]:
         if state["decision"]["verdict"] == Verdict.BLOCK_CARD:
             return "human_review"
         if state["rule_score"]["score"] >= settings.high_threshold:
@@ -160,6 +174,7 @@ def build_graph(
     g.add_node("score", score_node)
     g.add_node("auto_clear", auto_clear)
     g.add_node("investigate", investigate_node)
+    g.add_node("guardrails", guardrails)
     g.add_node("finalize", finalize)
     g.add_node("human_review", human_review)
 
@@ -168,7 +183,8 @@ def build_graph(
     g.add_edge("features", "score")
     g.add_conditional_edges("score", route_after_score)
     g.add_edge("auto_clear", END)
-    g.add_conditional_edges("investigate", route_after_investigate)
+    g.add_edge("investigate", "guardrails")
+    g.add_conditional_edges("guardrails", route_after_guardrails)
     g.add_edge("finalize", END)
     g.add_edge("human_review", END)
     return g.compile(checkpointer=checkpointer)
