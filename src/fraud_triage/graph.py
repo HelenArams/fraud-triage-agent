@@ -99,10 +99,20 @@ def build_graph(
         return "investigate"
 
     def guardrails(state: TriageState) -> dict[str, Any]:
+        txn = _txn(state)
+        rs = RuleScore.model_validate(state["rule_score"])
+        ctx = ToolContext(
+            txn=txn,
+            history=_history(state),
+            features=Features.model_validate(state["features"]),
+            rule_score=rs,
+        )
         checked = check(
             TriageDecision.model_validate(state["decision"]),
-            RuleScore.model_validate(state["rule_score"]),
+            rs,
             settings,
+            known_refs=ctx.known_refs(),
+            merchant_text=txn.merchant_name,
         )
         return {
             "decision": checked.decision.model_dump(mode="json"),
