@@ -33,7 +33,7 @@ def test_interrupt_then_resume_from_new_graph(tmp_path: Path) -> None:
     )
     assert not done.pending
     assert done.verdict == "BLOCK_CARD"
-    assert done.path[-1] == "human_review"
+    assert done.path[-2:] == ["human_review", "report"]
 
     values = fresh_graph(db).get_state({"configurable": {"thread_id": o.thread_id}}).values
     assert values["review"]["note"] == "called the cardholder"

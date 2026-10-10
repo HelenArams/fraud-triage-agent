@@ -53,7 +53,13 @@ def run(path: Path, out: OutOpt = Path("out")) -> None:
     table = Table("txn", "score", "band", "path", "verdict")
     for o in outcomes:
         verdict = "[yellow]awaiting review[/yellow]" if o.pending else (o.verdict or "-")
-        table.add_row(o.txn_id, f"{o.score:.2f}", o.band, " > ".join(o.path[3:]), verdict)
+        table.add_row(
+            o.txn_id,
+            f"{o.score:.2f}",
+            o.band,
+            " > ".join(p for p in o.path[3:] if p != "report"),
+            verdict,
+        )
     console.print(table)
     pending = [o.thread_id for o in outcomes if o.pending]
     console.print(
@@ -84,6 +90,7 @@ def review(
         console.print(f"[red]{e}[/red]")
         raise typer.Exit(1) from e
     console.print(f"{outcome.txn_id}: final verdict [bold]{outcome.verdict}[/bold]")
+    console.print(f"report: {out / (outcome.txn_id + '.md')}")
 
 
 @app.command()

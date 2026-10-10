@@ -15,6 +15,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import interrupt
 
+from fraud_triage import report as report_mod
 from fraud_triage.config import Settings
 from fraud_triage.features import Features, compute
 from fraud_triage.guardrails import check
@@ -39,6 +40,7 @@ class TriageState(TypedDict, total=False):
     guardrail_notes: list[str]
     review: dict[str, Any]
     final_verdict: str
+    reports: list[str]
 
 
 def _txn(state: TriageState) -> Transaction:
@@ -178,6 +180,11 @@ def build_graph(
             "path": ["human_review"],
         }
 
+    def report(state: TriageState) -> dict[str, Any]:
+        out_dir = state.get("out_dir")
+        paths = report_mod.write(state, out_dir) if out_dir else []
+        return {"reports": paths, "path": ["report"]}
+
     g = StateGraph(TriageState)
     g.add_node("ingest", ingest)
     g.add_node("features", features)
@@ -187,14 +194,16 @@ def build_graph(
     g.add_node("guardrails", guardrails)
     g.add_node("finalize", finalize)
     g.add_node("human_review", human_review)
+    g.add_node("report", report)
 
     g.add_edge(START, "ingest")
     g.add_edge("ingest", "features")
     g.add_edge("features", "score")
     g.add_conditional_edges("score", route_after_score)
-    g.add_edge("auto_clear", END)
+    g.add_edge("auto_clear", "report")
     g.add_edge("investigate", "guardrails")
     g.add_conditional_edges("guardrails", route_after_guardrails)
-    g.add_edge("finalize", END)
-    g.add_edge("human_review", END)
+    g.add_edge("finalize", "report")
+    g.add_edge("human_review", "report")
+    g.add_edge("report", END)
     return g.compile(checkpointer=checkpointer)

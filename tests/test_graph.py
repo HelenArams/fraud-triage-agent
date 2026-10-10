@@ -20,7 +20,7 @@ def run(llm: Any, state: dict[str, Any], tmp_path: Any, thread: str = "t") -> di
 def test_low_risk_auto_clears_without_llm(tmp_path: Any) -> None:
     fake = FakeClient([])
     out = run(fake, state_for(make_txn()), tmp_path)
-    assert out["path"] == ["ingest", "features", "score", "auto_clear"]
+    assert out["path"] == ["ingest", "features", "score", "auto_clear", "report"]
     assert out["final_verdict"] == "CLEAR"
     assert fake.calls == []
 
@@ -42,7 +42,7 @@ def test_mid_risk_goes_to_investigate(tmp_path: Any) -> None:
         ]
     )
     out = run(fake, state_for(txn, hist), tmp_path)
-    assert out["path"][3:] == ["investigate", "guardrails", "finalize"]
+    assert out["path"][3:] == ["investigate", "guardrails", "finalize", "report"]
     assert out["final_verdict"] == "REVIEW"
     assert out["tool_calls"] == ["feature_breakdown", "card_history", "submit_decision"]
     # second request carries both tool results back in one user message
