@@ -8,6 +8,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from fraud_triage.llm.anthropic_client import LLMUnavailable
 from fraud_triage.llm.base import LLMClient, Message, tool_result
 from fraud_triage.models import TriageDecision, Verdict
 from fraud_triage.prompts import SYSTEM_PROMPT, user_prompt
@@ -29,7 +30,12 @@ def investigate(llm: LLMClient, ctx: ToolContext, max_turns: int = 6) -> Investi
     notes: list[str] = []
 
     for _ in range(max_turns):
-        turn = llm.create(system=SYSTEM_PROMPT, tools=TOOL_SPECS, messages=messages)
+        try:
+            turn = llm.create(system=SYSTEM_PROMPT, tools=TOOL_SPECS, messages=messages)
+        except LLMUnavailable as e:
+            log.error("%s: llm unavailable: %s", ctx.txn.id, e)
+            notes.append(f"llm unavailable: {e}")
+            return Investigation(_fallback("The model was unavailable"), calls, notes)
         messages.append({"role": "assistant", "content": turn.content})
 
         if not turn.tool_calls:
@@ -58,10 +64,13 @@ def investigate(llm: LLMClient, ctx: ToolContext, max_turns: int = 6) -> Investi
 
     log.warning("%s: no decision after %d turns", ctx.txn.id, max_turns)
     notes.append(f"no decision after {max_turns} turns")
-    fallback = TriageDecision(
+    return Investigation(_fallback("The analyst did not reach a decision"), calls, notes)
+
+
+def _fallback(why: str) -> TriageDecision:
+    return TriageDecision(
         verdict=Verdict.REVIEW,
         confidence=0.0,
-        rationale="The analyst did not reach a decision; sending to the queue.",
+        rationale=f"{why}; sending to the manual queue (rule_score).",
         evidence=["rule_score"],
     )
-    return Investigation(fallback, calls, notes)

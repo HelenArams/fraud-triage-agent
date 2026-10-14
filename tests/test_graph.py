@@ -117,3 +117,15 @@ def test_investigate_gives_up_after_max_turns(tmp_path: Any) -> None:
     out = graph.get_state(thread_config("x")).values
     assert out["decision"]["verdict"] == "REVIEW"
     assert len(fake.calls) == 3
+
+
+def test_llm_outage_falls_back_to_review(tmp_path: Any) -> None:
+    from fraud_triage.llm.anthropic_client import LLMUnavailable
+
+    def boom(messages: Any) -> Any:
+        raise LLMUnavailable("overloaded")
+
+    txn, hist = ato_case()
+    out = run(FakeClient([boom]), state_for(txn, hist), tmp_path)
+    assert out["final_verdict"] == "REVIEW"
+    assert any("unavailable" in n for n in out["notes"])
