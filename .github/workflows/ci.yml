@@ -22,3 +22,5 @@ jobs:
         run: make lint PY=python
       - name: test
         run: make test PY=python
+      - name: eval (offline)
+        run: make eval PY=python

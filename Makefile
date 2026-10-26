@@ -1,6 +1,6 @@
 PY ?= .venv/bin/python
 
-.PHONY: venv install lint fmt test eval demo clean
+.PHONY: venv install lint fmt test eval eval-live demo clean
 
 venv:
 	python3.12 -m venv .venv
@@ -19,6 +19,12 @@ fmt:
 
 test:
 	$(PY) -m pytest
+
+eval:
+	$(PY) -m fraud_triage.evals evals/cases.yaml
+
+eval-live:
+	$(PY) -m fraud_triage.evals evals/cases.yaml --live
 
 demo:
 	$(PY) -m fraud_triage.cli run samples/transactions.csv --out out/
