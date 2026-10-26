@@ -52,14 +52,11 @@ def run(path: Path, out: OutOpt = Path("out")) -> None:
 
     table = Table("txn", "score", "band", "path", "verdict")
     for o in outcomes:
+        steps = [p for p in o.path[3:] if p != "report"]
+        if o.pending:
+            steps.append("human_review")
         verdict = "[yellow]awaiting review[/yellow]" if o.pending else (o.verdict or "-")
-        table.add_row(
-            o.txn_id,
-            f"{o.score:.2f}",
-            o.band,
-            " > ".join(p for p in o.path[3:] if p != "report"),
-            verdict,
-        )
+        table.add_row(o.txn_id, f"{o.score:.2f}", o.band, " > ".join(steps), verdict)
     console.print(table)
     pending = [o.thread_id for o in outcomes if o.pending]
     console.print(

@@ -4,10 +4,6 @@ import os
 
 import pytest
 
-from fraud_triage.models import Transaction
-
-from factories import make_txn
-
 
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory) -> None:
@@ -16,8 +12,3 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPat
         if key.startswith("FRAUD_"):
             monkeypatch.delenv(key)
     monkeypatch.chdir(tmp_path_factory.mktemp("cwd"))
-
-
-@pytest.fixture
-def txn() -> Transaction:
-    return make_txn()
